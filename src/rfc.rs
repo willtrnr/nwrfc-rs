@@ -4,14 +4,111 @@ use crate::{
     bindings::{
         self, RfcCloseConnection, RfcCreateFunction, RfcDestroyFunction, RfcDestroyFunctionDesc,
         RfcGetFunctionDesc, RfcGetInt, RfcGetParameterDescByName, RfcGetString, RfcGetStringLength,
-        RfcInvoke, RfcOpenConnection, RfcPing, RfcSetInt, RfcSetString, SAP_UC,
+        RfcInvoke, RfcOpenConnection, RfcPing, RfcSAPUCToUTF8, RfcSetInt, RfcSetString,
+        RfcUTF8ToSAPUC, SAP_UC,
     },
     error::{Result, RfcErrorInfo},
-    macros::*,
 };
 
-pub type SAPUCStr = widestring::UCStr<crate::bindings::SAP_UC>;
-pub type SAPUCString = widestring::UCString<crate::bindings::SAP_UC>;
+macro_rules! is_rc_ok {
+    ($expr:expr) => {
+        $expr == crate::bindings::_RFC_RC_RFC_OK
+    };
+}
+
+macro_rules! is_rc_err {
+    ($expr:expr) => {
+        !(is_rc_ok!($expr))
+    };
+}
+
+macro_rules! check_rc_ok {
+    ($expr:expr , $error:ident) => {
+        if is_rc_err!($expr) {
+            return Err($error);
+        }
+    };
+    ($fn:ident ( $($args:expr),+ ) ) => {
+        let mut err_info = crate::error::RfcErrorInfo::new();
+        check_rc_ok!($fn($($args),*, &mut err_info), err_info);
+    };
+    ($fn:ident ( ) ) => {
+        let mut err_info = crate::error::RfcErrorInfo::new();
+        check_rc_ok!($fn(&mut err_info), err_info);
+    };
+}
+
+pub fn to_sap_uc(value: &str) -> Result<Vec<SAP_UC>> {
+    let mut err_info = RfcErrorInfo::new();
+    let mut buf = Vec::with_capacity(value.len() + 1);
+    let mut buf_len: u32 = buf.capacity() as u32;
+    let mut res_len: u32 = 0;
+    unsafe {
+        let rc = RfcUTF8ToSAPUC(
+            value.as_ptr(),
+            value.len() as u32,
+            buf.as_mut_ptr(),
+            &mut buf_len,
+            &mut res_len,
+            &mut err_info,
+        );
+        if rc == bindings::_RFC_RC_RFC_BUFFER_TOO_SMALL {
+            buf.reserve_exact(buf_len as usize + 1);
+            buf_len = buf.capacity() as u32;
+            check_rc_ok!(
+                RfcUTF8ToSAPUC(
+                    value.as_ptr(),
+                    value.len() as u32,
+                    buf.as_mut_ptr(),
+                    &mut buf_len,
+                    &mut res_len,
+                    &mut err_info,
+                ),
+                err_info
+            );
+        } else if is_rc_err!(rc) {
+            return Err(err_info);
+        }
+        buf.set_len(res_len as usize);
+    }
+    Ok(buf)
+}
+
+pub fn from_sap_uc(value: &[SAP_UC]) -> Result<String> {
+    let mut err_info = RfcErrorInfo::new();
+    let mut buf = Vec::with_capacity(value.len() + 1);
+    let mut buf_len = buf.capacity() as u32;
+    let mut res_len: u32 = 0;
+    unsafe {
+        let rc = RfcSAPUCToUTF8(
+            value.as_ptr(),
+            value.len() as u32,
+            buf.as_mut_ptr(),
+            &mut buf_len,
+            &mut res_len,
+            &mut err_info,
+        );
+        if rc == bindings::_RFC_RC_RFC_BUFFER_TOO_SMALL {
+            buf.reserve_exact(buf_len as usize + 1);
+            buf_len = buf.capacity() as u32;
+            check_rc_ok!(
+                RfcSAPUCToUTF8(
+                    value.as_ptr(),
+                    value.len() as u32,
+                    buf.as_mut_ptr(),
+                    &mut buf_len,
+                    &mut res_len,
+                    &mut err_info,
+                ),
+                err_info
+            );
+        } else if is_rc_err!(rc) {
+            return Err(err_info);
+        }
+        buf.set_len(res_len as usize);
+    }
+    Ok(String::from_utf8(buf)?)
+}
 
 #[derive(Debug)]
 pub struct RfcConnection {
@@ -29,18 +126,18 @@ impl RfcConnection {
             .collect();
 
         let mut err_info = RfcErrorInfo::new();
-        let handle = unsafe {
-            RfcOpenConnection(
+        unsafe {
+            let handle = RfcOpenConnection(
                 conn_params.as_ptr(),
                 conn_params.len() as u32,
                 &mut err_info,
-            )
-        };
-        if handle.is_null() {
-            return Err(err_info);
-        }
+            );
+            if handle.is_null() {
+                return Err(err_info);
+            }
 
-        Ok(Self { handle })
+            Ok(Self { handle })
+        }
     }
 
     pub fn builder() -> RfcConnectionBuilder {
@@ -48,7 +145,7 @@ impl RfcConnection {
     }
 
     pub fn for_dest(name: &str) -> Result<RfcConnection> {
-        Self::new(vec![(to_sap_str!("dest"), to_sap_str!(name))])
+        Ok(Self::new(vec![(to_sap_uc("dest")?, to_sap_uc(name)?)])?)
     }
 
     pub fn ping(&self) -> Result<()> {
@@ -60,21 +157,20 @@ impl RfcConnection {
 
     pub fn get_function<'conn>(&'conn self, name: &str) -> Result<RfcFunction<'conn>> {
         let mut err_info = RfcErrorInfo::new();
+        unsafe {
+            let uc_name = to_sap_uc(name)?;
+            let desc_handle = RfcGetFunctionDesc(self.handle, uc_name.as_ptr(), &mut err_info);
+            if desc_handle.is_null() {
+                return Err(err_info);
+            }
 
-        let desc_handle = unsafe {
-            let c_name = to_sap_str!(name);
-            RfcGetFunctionDesc(self.handle, c_name.as_ptr(), &mut err_info)
-        };
-        if desc_handle.is_null() {
-            return Err(err_info);
+            let func_handle = RfcCreateFunction(desc_handle, &mut err_info);
+            if func_handle.is_null() {
+                return Err(err_info);
+            }
+
+            Ok(RfcFunction::new(&self.handle, desc_handle, func_handle))
         }
-
-        let func_handle = unsafe { RfcCreateFunction(desc_handle, &mut err_info) };
-        if func_handle.is_null() {
-            return Err(err_info);
-        }
-
-        Ok(RfcFunction::new(&self.handle, desc_handle, func_handle))
     }
 }
 
@@ -119,12 +215,12 @@ impl RfcConnectionBuilder {
     }
 
     pub fn build(self) -> Result<RfcConnection> {
-        let params: Vec<_> = self
+        let params: Result<Vec<_>> = self
             .params
             .into_iter()
-            .map(|(k, v)| (to_sap_str!(k), to_sap_str!(v)))
+            .map(|(k, v)| Ok((to_sap_uc(&k)?, to_sap_uc(&v)?)))
             .collect();
-        RfcConnection::new(params)
+        Ok(RfcConnection::new(params?)?)
     }
 }
 
@@ -157,10 +253,10 @@ impl<'conn> RfcFunction<'conn> {
     pub fn get_parameter<'param: 'conn>(&'param self, name: &str) -> Result<RfcParameter<'param>> {
         let mut param_desc = bindings::RFC_PARAMETER_DESC::default();
         unsafe {
-            let c_name = to_sap_str!(name);
+            let uc_name = to_sap_uc(name)?;
             check_rc_ok!(RfcGetParameterDescByName(
                 self.desc_handle,
-                c_name.as_ptr(),
+                uc_name.as_ptr(),
                 &mut param_desc
             ));
         }
@@ -211,9 +307,7 @@ impl<'cont> RfcParameter<'cont> {
     }
 
     pub fn name(&self) -> String {
-        from_sap_str!(&self.desc.name)
-            .expect("Missing NUL terminator in parameter name")
-            .to_string_lossy()
+        from_sap_uc(&self.desc.name).expect("Invalid SAP_UC name string")
     }
 
     pub fn set_int(&mut self, value: i32) -> Result<()> {
@@ -232,12 +326,12 @@ impl<'cont> RfcParameter<'cont> {
     }
 
     pub fn set_string(&mut self, value: &str) -> Result<()> {
-        let c_value = to_sap_str!(value);
         unsafe {
+            let uc_value = to_sap_uc(value)?;
             check_rc_ok!(RfcSetString(
                 *self.handle,
                 self.desc.name.as_ptr(),
-                c_value.as_ptr(),
+                uc_value.as_ptr(),
                 value.len() as u32
             ));
         }
@@ -254,16 +348,17 @@ impl<'cont> RfcParameter<'cont> {
             ));
             str_len += 1;
 
-            let mut actual_len: u32 = 0;
+            let mut res_len: u32 = 0;
             let mut str_buf: Vec<SAP_UC> = Vec::with_capacity(str_len as usize);
             check_rc_ok!(RfcGetString(
                 *self.handle,
                 self.desc.name.as_ptr(),
                 str_buf.as_mut_ptr(),
                 str_len,
-                &mut actual_len
+                &mut res_len
             ));
-            Ok(SAPUCStr::from_ptr(str_buf.as_ptr(), actual_len as usize)?.to_string()?)
+            str_buf.set_len(res_len as usize);
+            from_sap_uc(&str_buf)
         }
     }
 }
@@ -278,28 +373,26 @@ impl<'cont> RfcParameter<'cont> {
         Tz: chrono::TimeZone,
         Tz::Offset: std::fmt::Display,
     {
-        let mut c_value = to_sap_str!(&value.format("%Y%m%d").to_string());
-        assert_eq!(c_value.len() as u32, bindings::SAP_DATE_LN);
+        let mut uc_value = to_sap_uc(&value.format("%Y%m%d").to_string())?;
         unsafe {
             check_rc_ok!(RfcSetDate(
                 *self.handle,
                 self.desc.name.as_ptr(),
-                c_value.as_mut_ptr(),
+                uc_value.as_mut_ptr()
             ));
         }
         Ok(())
     }
 
     pub fn get_date(&self) -> Result<chrono::Date<chrono::FixedOffset>> {
-        let mut date_buf = Vec::with_capacity(bindings::SAP_DATE_LN as usize + 1);
+        let mut date_buf = Vec::with_capacity(bindings::SAP_DATE_LN as usize);
         unsafe {
             check_rc_ok!(RfcGetDate(
                 *self.handle,
                 self.desc.name.as_ptr(),
-                date_buf.as_mut_ptr(),
+                date_buf.as_mut_ptr()
             ));
-            let date_str = SAPUCStr::from_ptr(date_buf.as_ptr(), bindings::SAP_DATE_LN as usize)?
-                .to_string()?;
+            let date_str = from_sap_uc(&date_buf)?;
             Ok(chrono::DateTime::parse_from_str(&date_str, "%Y%m%d")
                 .map_err(|err| RfcErrorInfo::custom(&err.to_string()))?
                 .date())
@@ -310,6 +403,15 @@ impl<'cont> RfcParameter<'cont> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sap_uc_roundtrip() {
+        assert_eq!(from_sap_uc(&to_sap_uc("").unwrap()).unwrap(), "",);
+        assert_eq!(
+            from_sap_uc(&to_sap_uc("Test String").unwrap()).unwrap(),
+            "Test String",
+        );
+    }
 
     #[test]
     fn smoke_test() {

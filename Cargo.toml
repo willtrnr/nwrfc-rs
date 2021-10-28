@@ -13,7 +13,6 @@ crate-type = ["cdylib", "lib"]
 chrono = { version = "0.4", optional = true }
 libc = "0.2"
 log = "0.4"
-widestring = "0.5"
 
 [build-dependencies]
 bindgen = "0.59"
