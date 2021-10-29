@@ -4,7 +4,7 @@ pub mod uc;
 
 pub use crate::{
     error::RfcErrorInfo,
-    rfc::{RfcConnection, RfcConnectionBuilder, RfcFunction},
+    rfc::{RfcConnection, RfcConnectionBuilder, RfcFunction, RfcTable, RfcStructure},
 };
 
 mod macros {

@@ -315,7 +315,7 @@ impl RfcParameter<'_> {
     pub fn get_date(&self) -> Result<chrono::Date<chrono::FixedOffset>> {
         use sapnwrfc_sys::RfcGetDate;
 
-        let mut date_buf: [SAP_UC; sapnwrfc_sys::SAP_DATE_LN as usize];
+        let mut date_buf = [0 as SAP_UC; sapnwrfc_sys::SAP_DATE_LN as usize];
         unsafe {
             check_rc_ok!(RfcGetDate(
                 *self.handle,
