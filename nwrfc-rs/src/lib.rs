@@ -2,9 +2,12 @@ pub mod error;
 pub mod rfc;
 pub mod uc;
 
+#[cfg(feature = "deadpool")]
+pub mod pool;
+
 pub use crate::{
     error::RfcErrorInfo,
-    rfc::{RfcConnection, RfcConnectionBuilder, RfcFunction, RfcTable, RfcStructure},
+    rfc::{RfcConnection, RfcConnectionBuilder, RfcFunction, RfcStructure, RfcTable},
 };
 
 mod macros {
