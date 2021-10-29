@@ -1,140 +1,26 @@
-use std::{collections::HashMap, ptr};
-
 use crate::{
-    bindings::{
-        self, RfcCloseConnection, RfcCreateFunction, RfcDestroyFunction, RfcDestroyFunctionDesc,
-        RfcGetFunctionDesc, RfcGetInt, RfcGetParameterDescByName, RfcGetString, RfcGetStringLength,
-        RfcGetTable, RfcInvoke, RfcOpenConnection, RfcPing, RfcSAPUCToUTF8, RfcSetInt,
-        RfcSetString, RfcUTF8ToSAPUC, SAP_UC,
-    },
     error::{Result, RfcErrorInfo},
+    macros::*,
+    uc,
 };
-
-macro_rules! is_rc_ok {
-    ($expr:expr) => {
-        $expr == crate::bindings::_RFC_RC_RFC_OK
-    };
-}
-
-macro_rules! is_rc_err {
-    ($expr:expr) => {
-        !(is_rc_ok!($expr))
-    };
-}
-
-macro_rules! check_rc_ok {
-    ($expr:expr , $error:ident) => {
-        if is_rc_err!($expr) {
-            return Err($error);
-        }
-    };
-    ($fn:ident ( $($args:expr),+ ) ) => {
-        let mut err_info = crate::error::RfcErrorInfo::new();
-        check_rc_ok!($fn($($args),*, &mut err_info), err_info);
-    };
-    ($fn:ident ( ) ) => {
-        let mut err_info = crate::error::RfcErrorInfo::new();
-        check_rc_ok!($fn(&mut err_info), err_info);
-    };
-}
-
-pub fn str_to_sap_uc_slice(value: &str, dest: &mut [SAP_UC]) -> Result<u32> {
-    let mut dest_len: u32 = dest.len() as u32;
-    let mut res_len: u32 = 0;
-    unsafe {
-        check_rc_ok!(RfcUTF8ToSAPUC(
-            value.as_ptr(),
-            value.len() as u32,
-            dest.as_mut_ptr(),
-            &mut dest_len,
-            &mut res_len
-        ));
-    }
-    Ok(res_len)
-}
-
-pub fn str_to_sap_uc(value: &str) -> Result<Vec<SAP_UC>> {
-    let mut err_info = RfcErrorInfo::new();
-    let mut buf = Vec::with_capacity(value.len() + 1);
-    let mut buf_len: u32 = buf.capacity() as u32;
-    let mut res_len: u32 = 0;
-    unsafe {
-        let rc = RfcUTF8ToSAPUC(
-            value.as_ptr(),
-            value.len() as u32,
-            buf.as_mut_ptr(),
-            &mut buf_len,
-            &mut res_len,
-            &mut err_info,
-        );
-        if rc == bindings::_RFC_RC_RFC_BUFFER_TOO_SMALL {
-            buf.reserve_exact(buf_len as usize + 1);
-            buf_len = buf.capacity() as u32;
-            check_rc_ok!(
-                RfcUTF8ToSAPUC(
-                    value.as_ptr(),
-                    value.len() as u32,
-                    buf.as_mut_ptr(),
-                    &mut buf_len,
-                    &mut res_len,
-                    &mut err_info,
-                ),
-                err_info
-            );
-        } else if is_rc_err!(rc) {
-            return Err(err_info);
-        }
-        buf.set_len(res_len as usize);
-    }
-    Ok(buf)
-}
-
-pub fn str_from_sap_uc(value: &[SAP_UC]) -> Result<String> {
-    let mut err_info = RfcErrorInfo::new();
-    let mut str_buf = Vec::with_capacity(value.len() + 1);
-    let mut buf_len = str_buf.capacity() as u32;
-    let mut res_len: u32 = 0;
-    unsafe {
-        let rc = RfcSAPUCToUTF8(
-            value.as_ptr(),
-            value.len() as u32,
-            str_buf.as_mut_ptr(),
-            &mut buf_len,
-            &mut res_len,
-            &mut err_info,
-        );
-        if rc == bindings::_RFC_RC_RFC_BUFFER_TOO_SMALL {
-            str_buf.reserve_exact(buf_len as usize + 1);
-            buf_len = str_buf.capacity() as u32;
-            check_rc_ok!(
-                RfcSAPUCToUTF8(
-                    value.as_ptr(),
-                    value.len() as u32,
-                    str_buf.as_mut_ptr(),
-                    &mut buf_len,
-                    &mut res_len,
-                    &mut err_info,
-                ),
-                err_info
-            );
-        } else if is_rc_err!(rc) {
-            return Err(err_info);
-        }
-        str_buf.set_len(res_len as usize);
-    }
-    Ok(String::from_utf8(str_buf)?)
-}
+use sapnwrfc_sys::{
+    self, RfcCloseConnection, RfcCreateFunction, RfcDestroyFunction, RfcDestroyFunctionDesc,
+    RfcGetFunctionDesc, RfcGetInt, RfcGetParameterDescByName, RfcGetString, RfcGetStringLength,
+    RfcGetStructure, RfcGetTable, RfcInvoke, RfcOpenConnection, RfcPing, RfcSetInt, RfcSetString,
+    SAP_UC,
+};
+use std::{collections::HashMap, ptr};
 
 #[derive(Debug)]
 pub struct RfcConnection {
-    handle: bindings::RFC_CONNECTION_HANDLE,
+    handle: sapnwrfc_sys::RFC_CONNECTION_HANDLE,
 }
 
 impl RfcConnection {
     pub(crate) fn new(params: Vec<(Vec<SAP_UC>, Vec<SAP_UC>)>) -> Result<RfcConnection> {
         let conn_params: Vec<_> = params
             .iter()
-            .map(|(k, v)| bindings::RFC_CONNECTION_PARAMETER {
+            .map(|(k, v)| sapnwrfc_sys::RFC_CONNECTION_PARAMETER {
                 name: k.as_ptr(),
                 value: v.as_ptr(),
             })
@@ -145,7 +31,7 @@ impl RfcConnection {
             let handle = RfcOpenConnection(
                 conn_params.as_ptr(),
                 conn_params.len() as u32,
-                &mut err_info,
+                err_info.as_mut_ptr(),
             );
             if handle.is_null() {
                 return Err(err_info);
@@ -159,10 +45,7 @@ impl RfcConnection {
     }
 
     pub fn for_dest(name: &str) -> Result<RfcConnection> {
-        Ok(Self::new(vec![(
-            str_to_sap_uc("dest")?,
-            str_to_sap_uc(name)?,
-        )])?)
+        Self::new(vec![(uc::from_str("dest")?, uc::from_str(name)?)])
     }
 
     pub fn ping(&self) -> Result<()> {
@@ -173,15 +56,16 @@ impl RfcConnection {
     }
 
     pub fn get_function<'conn>(&'conn self, name: &str) -> Result<RfcFunction<'conn>> {
-        let uc_name = str_to_sap_uc(name)?;
+        let uc_name = uc::from_str(name)?;
         let mut err_info = RfcErrorInfo::new();
         unsafe {
-            let desc_handle = RfcGetFunctionDesc(self.handle, uc_name.as_ptr(), &mut err_info);
+            let desc_handle =
+                RfcGetFunctionDesc(self.handle, uc_name.as_ptr(), err_info.as_mut_ptr());
             if desc_handle.is_null() {
                 return Err(err_info);
             }
 
-            let func_handle = RfcCreateFunction(desc_handle, &mut err_info);
+            let func_handle = RfcCreateFunction(desc_handle, err_info.as_mut_ptr());
             if func_handle.is_null() {
                 return Err(err_info);
             }
@@ -191,12 +75,14 @@ impl RfcConnection {
     }
 }
 
+unsafe impl Send for RfcConnection {}
+
 impl Drop for RfcConnection {
     fn drop(&mut self) {
         if !self.handle.is_null() {
             let mut err_info = RfcErrorInfo::new();
             unsafe {
-                if is_rc_err!(RfcCloseConnection(self.handle, &mut err_info)) {
+                if is_rc_err!(RfcCloseConnection(self.handle, err_info.as_mut_ptr())) {
                     log::warn!("Connection close failed: {}", err_info);
                 }
             }
@@ -235,9 +121,9 @@ impl RfcConnectionBuilder {
         let params: Result<Vec<_>> = self
             .params
             .into_iter()
-            .map(|(k, v)| Ok((str_to_sap_uc(&k)?, str_to_sap_uc(&v)?)))
+            .map(|(k, v)| Ok((uc::from_str(&k)?, uc::from_str(&v)?)))
             .collect();
-        Ok(RfcConnection::new(params?)?)
+        RfcConnection::new(params?)
     }
 }
 
@@ -249,30 +135,26 @@ impl Default for RfcConnectionBuilder {
 
 #[derive(Debug)]
 pub struct RfcFunction<'conn> {
-    conn_handle: &'conn bindings::RFC_CONNECTION_HANDLE,
-    desc_handle: bindings::RFC_FUNCTION_DESC_HANDLE,
-    func_handle: bindings::RFC_FUNCTION_HANDLE,
+    conn: &'conn sapnwrfc_sys::RFC_CONNECTION_HANDLE,
+    desc: sapnwrfc_sys::RFC_FUNCTION_DESC_HANDLE,
+    func: sapnwrfc_sys::RFC_FUNCTION_HANDLE,
 }
 
 impl<'conn> RfcFunction<'conn> {
     pub(crate) fn new(
-        conn_handle: &'conn bindings::RFC_CONNECTION_HANDLE,
-        desc_handle: bindings::RFC_FUNCTION_DESC_HANDLE,
-        func_handle: bindings::RFC_FUNCTION_HANDLE,
+        conn: &'conn sapnwrfc_sys::RFC_CONNECTION_HANDLE,
+        desc: sapnwrfc_sys::RFC_FUNCTION_DESC_HANDLE,
+        func: sapnwrfc_sys::RFC_FUNCTION_HANDLE,
     ) -> Self {
-        Self {
-            conn_handle,
-            desc_handle,
-            func_handle,
-        }
+        Self { conn, desc, func }
     }
 
-    fn get_parameter_desc(&self, name: &str) -> Result<bindings::RFC_PARAMETER_DESC> {
-        let uc_name = str_to_sap_uc(name)?;
-        let mut desc = bindings::RFC_PARAMETER_DESC::default();
+    fn get_parameter_desc(&self, name: &str) -> Result<sapnwrfc_sys::RFC_PARAMETER_DESC> {
+        let uc_name = uc::from_str(name)?;
+        let mut desc = sapnwrfc_sys::RFC_PARAMETER_DESC::default();
         unsafe {
             check_rc_ok!(RfcGetParameterDescByName(
-                self.desc_handle,
+                self.desc,
                 uc_name.as_ptr(),
                 &mut desc
             ));
@@ -282,73 +164,80 @@ impl<'conn> RfcFunction<'conn> {
 
     pub fn get_parameter<'param: 'conn>(&'param self, name: &str) -> Result<RfcParameter<'param>> {
         Ok(RfcParameter::new(
-            &self.func_handle,
+            &self.func,
             self.get_parameter_desc(name)?,
         ))
     }
 
-    pub fn get_table<'table: 'conn>(&'table self, name: &str) -> Result<RfcTable<'table>> {
+    pub fn get_structure<'param: 'conn>(&'param self, name: &str) -> Result<RfcStructure<'param>> {
         let desc = self.get_parameter_desc(name)?;
-        let mut table: bindings::RFC_TABLE_HANDLE = ptr::null_mut();
+        let mut struc: sapnwrfc_sys::RFC_STRUCTURE_HANDLE = ptr::null_mut();
         unsafe {
-            check_rc_ok!(RfcGetTable(
-                self.func_handle,
-                desc.name.as_ptr(),
-                &mut table
-            ));
+            check_rc_ok!(RfcGetStructure(self.func, desc.name.as_ptr(), &mut struc));
         }
-        Ok(RfcTable::new(&self.func_handle, desc, table))
+        Ok(RfcStructure::new(&self.func, desc, struc))
+    }
+
+    pub fn get_table<'param: 'conn>(&'param self, name: &str) -> Result<RfcTable<'param>> {
+        let desc = self.get_parameter_desc(name)?;
+        let mut table: sapnwrfc_sys::RFC_TABLE_HANDLE = ptr::null_mut();
+        unsafe {
+            check_rc_ok!(RfcGetTable(self.func, desc.name.as_ptr(), &mut table));
+        }
+        Ok(RfcTable::new(&self.func, desc, table))
     }
 
     pub fn invoke(&self) -> Result<()> {
         unsafe {
-            check_rc_ok!(RfcInvoke(*self.conn_handle, self.func_handle));
+            check_rc_ok!(RfcInvoke(*self.conn, self.func));
         }
         Ok(())
     }
 }
 
-impl<'conn> Drop for RfcFunction<'conn> {
+unsafe impl Send for RfcFunction<'_> {}
+
+impl Drop for RfcFunction<'_> {
     fn drop(&mut self) {
         let mut err_info = RfcErrorInfo::new();
-        if !self.func_handle.is_null() {
+        if !self.func.is_null() {
             unsafe {
-                if is_rc_err!(RfcDestroyFunction(self.func_handle, &mut err_info)) {
+                if is_rc_err!(RfcDestroyFunction(self.func, err_info.as_mut_ptr())) {
                     log::warn!("Function discard failed: {}", err_info);
                 }
             }
-            self.func_handle = ptr::null_mut();
+            self.func = ptr::null_mut();
         }
-        if !self.desc_handle.is_null() {
+        if !self.desc.is_null() {
             unsafe {
-                let rc = RfcDestroyFunctionDesc(self.desc_handle, &mut err_info);
+                let rc = RfcDestroyFunctionDesc(self.desc, err_info.as_mut_ptr());
                 // Call to RfcDestroyFunctionDesc fails with RFC_ILLEGAL_STATE when
                 // the function description is held in the runtime cache. The error
                 // can safely be silenced for this case.
-                if is_rc_err!(rc) && rc != bindings::_RFC_RC_RFC_ILLEGAL_STATE {
+                if is_rc_err!(rc) && rc != sapnwrfc_sys::_RFC_RC_RFC_ILLEGAL_STATE {
                     log::warn!("Function description discard failed: {}", err_info);
                 }
             }
-            self.desc_handle = ptr::null_mut();
+            self.desc = ptr::null_mut();
         }
     }
 }
 
 pub struct RfcParameter<'func> {
-    handle: &'func bindings::DATA_CONTAINER_HANDLE,
-    desc: bindings::RFC_PARAMETER_DESC,
+    handle: &'func sapnwrfc_sys::DATA_CONTAINER_HANDLE,
+    desc: sapnwrfc_sys::RFC_PARAMETER_DESC,
 }
 
 impl<'func> RfcParameter<'func> {
     pub(crate) fn new(
-        handle: &'func bindings::DATA_CONTAINER_HANDLE,
-        desc: bindings::RFC_PARAMETER_DESC,
+        handle: &'func sapnwrfc_sys::DATA_CONTAINER_HANDLE,
+        desc: sapnwrfc_sys::RFC_PARAMETER_DESC,
     ) -> Self {
         Self { handle, desc }
     }
 
     pub fn name(&self) -> String {
-        str_from_sap_uc(&self.desc.name).expect("Invalid SAP_UC name string")
+        uc::to_string_truncate(&self.desc.name).expect("Invalid SAP_UC name string")
     }
 
     pub fn set_int(&mut self, value: i32) -> Result<()> {
@@ -367,7 +256,7 @@ impl<'func> RfcParameter<'func> {
     }
 
     pub fn set_string(&mut self, value: &str) -> Result<()> {
-        let uc_value = str_to_sap_uc(value)?;
+        let uc_value = uc::from_str(value)?;
         unsafe {
             check_rc_ok!(RfcSetString(
                 *self.handle,
@@ -398,21 +287,21 @@ impl<'func> RfcParameter<'func> {
                 str_len,
                 &mut res_len
             ));
-            str_buf.set_len(res_len as usize);
-            str_from_sap_uc(&str_buf)
+            uc::to_string(str_buf.as_ptr(), res_len)
         }
     }
 }
 
 #[cfg(feature = "chrono")]
-impl<'func> RfcParameter<'func> {
+impl RfcParameter<'_> {
     pub fn set_date<Tz>(&mut self, value: chrono::Date<Tz>) -> Result<()>
     where
         Tz: chrono::TimeZone,
         Tz::Offset: std::fmt::Display,
     {
-        use crate::bindings::RfcSetDate;
-        let mut uc_value = str_to_sap_uc(&value.format("%Y%m%d").to_string())?;
+        use sapnwrfc_sys::RfcSetDate;
+
+        let mut uc_value = uc::from_str(&value.format("%Y%m%d").to_string())?;
         unsafe {
             check_rc_ok!(RfcSetDate(
                 *self.handle,
@@ -424,15 +313,16 @@ impl<'func> RfcParameter<'func> {
     }
 
     pub fn get_date(&self) -> Result<chrono::Date<chrono::FixedOffset>> {
-        use crate::bindings::RfcGetDate;
-        let mut date_buf = Vec::with_capacity(bindings::SAP_DATE_LN as usize);
+        use sapnwrfc_sys::RfcGetDate;
+
+        let mut date_buf: [SAP_UC; sapnwrfc_sys::SAP_DATE_LN as usize];
         unsafe {
             check_rc_ok!(RfcGetDate(
                 *self.handle,
                 self.desc.name.as_ptr(),
                 date_buf.as_mut_ptr()
             ));
-            let date_str = str_from_sap_uc(&date_buf)?;
+            let date_str = uc::to_string(date_buf.as_ptr(), sapnwrfc_sys::SAP_DATE_LN)?;
             Ok(chrono::DateTime::parse_from_str(&date_str, "%Y%m%d")
                 .map_err(|err| RfcErrorInfo::custom(&err.to_string()))?
                 .date())
@@ -440,17 +330,39 @@ impl<'func> RfcParameter<'func> {
     }
 }
 
+pub struct RfcStructure<'func> {
+    handle: &'func sapnwrfc_sys::DATA_CONTAINER_HANDLE,
+    desc: sapnwrfc_sys::RFC_PARAMETER_DESC,
+    struc: sapnwrfc_sys::RFC_STRUCTURE_HANDLE,
+}
+
+impl<'func> RfcStructure<'func> {
+    pub(crate) fn new(
+        handle: &'func sapnwrfc_sys::DATA_CONTAINER_HANDLE,
+        desc: sapnwrfc_sys::RFC_PARAMETER_DESC,
+        struc: sapnwrfc_sys::RFC_STRUCTURE_HANDLE,
+    ) -> Self {
+        Self {
+            handle,
+            desc,
+            struc,
+        }
+    }
+}
+
+unsafe impl Send for RfcStructure<'_> {}
+
 pub struct RfcTable<'func> {
-    handle: &'func bindings::DATA_CONTAINER_HANDLE,
-    desc: bindings::RFC_PARAMETER_DESC,
-    table: bindings::RFC_TABLE_HANDLE,
+    handle: &'func sapnwrfc_sys::DATA_CONTAINER_HANDLE,
+    desc: sapnwrfc_sys::RFC_PARAMETER_DESC,
+    table: sapnwrfc_sys::RFC_TABLE_HANDLE,
 }
 
 impl<'func> RfcTable<'func> {
     pub(crate) fn new(
-        handle: &'func bindings::DATA_CONTAINER_HANDLE,
-        desc: bindings::RFC_PARAMETER_DESC,
-        table: bindings::RFC_TABLE_HANDLE,
+        handle: &'func sapnwrfc_sys::DATA_CONTAINER_HANDLE,
+        desc: sapnwrfc_sys::RFC_PARAMETER_DESC,
+        table: sapnwrfc_sys::RFC_TABLE_HANDLE,
     ) -> Self {
         Self {
             handle,
@@ -460,18 +372,11 @@ impl<'func> RfcTable<'func> {
     }
 }
 
+unsafe impl Send for RfcTable<'_> {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn sap_uc_roundtrip() {
-        assert_eq!(str_from_sap_uc(&str_to_sap_uc("").unwrap()).unwrap(), "",);
-        assert_eq!(
-            str_from_sap_uc(&str_to_sap_uc("Test String").unwrap()).unwrap(),
-            "Test String",
-        );
-    }
 
     #[test]
     fn smoke_test() {

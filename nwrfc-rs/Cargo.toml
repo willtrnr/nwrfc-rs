@@ -1,0 +1,17 @@
+[package]
+name = "nwrfc-rs"
+version = "0.1.0"
+authors = ["github.com/willtrnr"]
+license = "MIT"
+edition = "2018"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+chrono = { version = "0.4", optional = true }
+log = "0.4"
+sapnwrfc-sys = { path = "../sapnwrfc-sys", version = "0.1" }
+
+[build-dependencies]
+bindgen = "0.59"

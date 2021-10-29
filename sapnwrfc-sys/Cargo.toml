@@ -1,0 +1,13 @@
+[package]
+name = "sapnwrfc-sys"
+version = "0.1.0"
+authors = ["github.com/willtrnr"]
+license = "MIT"
+edition = "2018"
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[build-dependencies]
+bindgen = "0.59"

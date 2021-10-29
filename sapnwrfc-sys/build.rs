@@ -21,7 +21,6 @@ fn main() {
         .allowlist_function("_*Rfc.*")
         .allowlist_type("_*(?:DATA|RFC|SAP|DecFloat).*")
         .allowlist_var("_*(?:DATA|RFC|SAP|DecFloat).*")
-        .allowlist_recursively(false)
         .derive_debug(false)
         .derive_default(true)
         .clang_arg(format!("-I{}", sdk_home.join("include").to_string_lossy()))
