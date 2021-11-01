@@ -426,7 +426,7 @@ impl<'func> RfcTable<'func> {
     }
 
     /// Add and return a new row to the table.
-    pub fn add_row<'row: 'func>(&'row self) -> Result<RfcStructure<'row>> {
+    pub fn add_row<'row: 'func>(&'row mut self) -> Result<RfcStructure<'row>> {
         let mut err_info = RfcErrorInfo::new();
         let handle = unsafe { RfcAppendNewRow(self.table, err_info.as_mut_ptr()) };
         if handle.is_null() {
