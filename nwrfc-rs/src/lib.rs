@@ -10,10 +10,11 @@ pub use crate::{
     rfc::{RfcConnection, RfcConnectionBuilder, RfcFunction, RfcStructure, RfcTable},
 };
 
+#[allow(clippy::single_component_path_imports)]
 mod macros {
     macro_rules! is_rc_err {
         ($expr:expr) => {
-            $expr != sapnwrfc_sys::_RFC_RC_RFC_OK
+            $expr != sapnwrfc_sys::_RFC_RC::RFC_OK
         };
     }
 

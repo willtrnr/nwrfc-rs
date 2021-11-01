@@ -1,7 +1,5 @@
 use crate::uc;
-use sapnwrfc_sys::{
-    RFC_ERROR_INFO, _RFC_ERROR_GROUP_EXTERNAL_APPLICATION_FAILURE, _RFC_RC_RFC_UNKNOWN_ERROR,
-};
+use sapnwrfc_sys::{RFC_ERROR_INFO, _RFC_ERROR_GROUP, _RFC_RC};
 use std::{error, fmt, result, string};
 
 pub type Result<T> = result::Result<T, RfcErrorInfo>;
@@ -19,8 +17,8 @@ impl RfcErrorInfo {
 
     pub fn custom(message: &str) -> Self {
         let mut slf = Self::new();
-        slf.inner.code = _RFC_RC_RFC_UNKNOWN_ERROR;
-        slf.inner.group = _RFC_ERROR_GROUP_EXTERNAL_APPLICATION_FAILURE;
+        slf.inner.code = _RFC_RC::RFC_UNKNOWN_ERROR;
+        slf.inner.group = _RFC_ERROR_GROUP::EXTERNAL_APPLICATION_FAILURE;
         uc::from_str_to_slice(message, &mut slf.inner.message)
             .expect("Invalid custom error message string");
         slf

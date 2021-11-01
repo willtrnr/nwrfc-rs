@@ -4,13 +4,14 @@ use crate::{
     uc,
 };
 use sapnwrfc_sys::{
-    self, RfcCloseConnection, RfcCreateFunction, RfcDestroyFunction, RfcDestroyFunctionDesc,
-    RfcGetFunctionDesc, RfcGetInt, RfcGetParameterDescByName, RfcGetString, RfcGetStringLength,
-    RfcGetStructure, RfcGetTable, RfcInvoke, RfcOpenConnection, RfcPing, RfcSetInt, RfcSetString,
-    SAP_UC,
+    self, RfcAppendNewRow, RfcCloseConnection, RfcCreateFunction, RfcDestroyFunction,
+    RfcDestroyFunctionDesc, RfcGetCurrentRow, RfcGetFunctionDesc, RfcGetInt,
+    RfcGetParameterDescByName, RfcGetRowCount, RfcGetString, RfcGetStringLength, RfcGetStructure,
+    RfcGetTable, RfcInvoke, RfcOpenConnection, RfcPing, RfcSetInt, RfcSetString, SAP_UC,
 };
 use std::{collections::HashMap, ptr};
 
+/// An SAP NW RFC connection.
 #[derive(Debug)]
 pub struct RfcConnection {
     handle: sapnwrfc_sys::RFC_CONNECTION_HANDLE,
@@ -27,27 +28,32 @@ impl RfcConnection {
             .collect();
 
         let mut err_info = RfcErrorInfo::new();
-        unsafe {
-            let handle = RfcOpenConnection(
+        let handle = unsafe {
+            RfcOpenConnection(
                 conn_params.as_ptr(),
                 conn_params.len() as u32,
                 err_info.as_mut_ptr(),
-            );
-            if handle.is_null() {
-                return Err(err_info);
-            }
-            Ok(Self { handle })
+            )
+        };
+        if handle.is_null() {
+            return Err(err_info);
         }
+        Ok(Self { handle })
     }
 
+    /// Get an empty connection builder to provide parameters for connecting.
     pub fn builder() -> RfcConnectionBuilder {
         RfcConnectionBuilder::default()
     }
 
+    /// Short way to open a connection to a destination specified in an `sapnwrfc.ini` file.
+    ///
+    /// Equivalent to only setting the `dest` parameter in a connection builder.
     pub fn for_dest(name: &str) -> Result<RfcConnection> {
         Self::new(vec![(uc::from_str("dest")?, uc::from_str(name)?)])
     }
 
+    /// Check if the connection is alive by sending an RFC ping.
     pub fn ping(&self) -> Result<()> {
         unsafe {
             check_rc_ok!(RfcPing(self.handle));
@@ -55,23 +61,21 @@ impl RfcConnection {
         Ok(())
     }
 
+    /// Get a remote enabled function module by name.
     pub fn get_function<'conn>(&'conn self, name: &str) -> Result<RfcFunction<'conn>> {
         let uc_name = uc::from_str(name)?;
+
         let mut err_info = RfcErrorInfo::new();
-        unsafe {
-            let desc_handle =
-                RfcGetFunctionDesc(self.handle, uc_name.as_ptr(), err_info.as_mut_ptr());
-            if desc_handle.is_null() {
-                return Err(err_info);
-            }
-
-            let func_handle = RfcCreateFunction(desc_handle, err_info.as_mut_ptr());
-            if func_handle.is_null() {
-                return Err(err_info);
-            }
-
-            Ok(RfcFunction::new(&self.handle, desc_handle, func_handle))
+        let desc_handle =
+            unsafe { RfcGetFunctionDesc(self.handle, uc_name.as_ptr(), err_info.as_mut_ptr()) };
+        if desc_handle.is_null() {
+            return Err(err_info);
         }
+        let func_handle = unsafe { RfcCreateFunction(desc_handle, err_info.as_mut_ptr()) };
+        if func_handle.is_null() {
+            return Err(err_info);
+        }
+        Ok(RfcFunction::new(&self.handle, desc_handle, func_handle))
     }
 }
 
@@ -91,24 +95,24 @@ impl Drop for RfcConnection {
     }
 }
 
+/// An RFC connection builder to prepare parameters for opening the connection.
 #[derive(Clone, Debug)]
 pub struct RfcConnectionBuilder {
     params: HashMap<String, String>,
 }
 
 impl RfcConnectionBuilder {
+    /// Get a new, empty, builder.
     pub fn new() -> Self {
         Self {
             params: HashMap::new(),
         }
     }
 
-    pub fn for_dest(name: &str) -> RfcConnectionBuilder {
-        let mut params = HashMap::with_capacity(1);
-        params.insert("dest".to_owned(), name.to_owned());
-        Self { params }
-    }
-
+    /// Set a parameter to a given value.
+    ///
+    /// Note that all RFC connection parameters are represented as string internally
+    /// so setting a value to `0` or `"0"` for instance is equivalent.
     pub fn set_param<T>(mut self, key: &str, value: T) -> Self
     where
         T: ToString,
@@ -117,6 +121,7 @@ impl RfcConnectionBuilder {
         self
     }
 
+    /// Consume the builder and try connecting with the set parameters.
     pub fn build(self) -> Result<RfcConnection> {
         let params: Result<Vec<_>> = self
             .params
@@ -133,6 +138,7 @@ impl Default for RfcConnectionBuilder {
     }
 }
 
+/// A remote enabled function module.
 #[derive(Debug)]
 pub struct RfcFunction<'conn> {
     conn: &'conn sapnwrfc_sys::RFC_CONNECTION_HANDLE,
@@ -149,8 +155,10 @@ impl<'conn> RfcFunction<'conn> {
         Self { conn, desc, func }
     }
 
-    fn get_parameter_desc(&self, name: &str) -> Result<sapnwrfc_sys::RFC_PARAMETER_DESC> {
+    /// Get an IMPORT, EXPORT or TABLE parameter by name.
+    pub fn get_parameter<'param: 'conn>(&'param self, name: &str) -> Result<RfcParameter<'param>> {
         let uc_name = uc::from_str(name)?;
+
         let mut desc = sapnwrfc_sys::RFC_PARAMETER_DESC::default();
         unsafe {
             check_rc_ok!(RfcGetParameterDescByName(
@@ -159,32 +167,17 @@ impl<'conn> RfcFunction<'conn> {
                 &mut desc
             ));
         }
-        Ok(desc)
+        Ok(RfcParameter::new(&self.func, desc))
     }
 
-    pub fn get_parameter<'param: 'conn>(&'param self, name: &str) -> Result<RfcParameter<'param>> {
-        Ok(RfcParameter::new(
-            &self.func,
-            self.get_parameter_desc(name)?,
-        ))
-    }
-
+    /// Get an IMPORT or EXPORT structure parameter.
     pub fn get_structure<'param: 'conn>(&'param self, name: &str) -> Result<RfcStructure<'param>> {
-        let desc = self.get_parameter_desc(name)?;
-        let mut struc: sapnwrfc_sys::RFC_STRUCTURE_HANDLE = ptr::null_mut();
-        unsafe {
-            check_rc_ok!(RfcGetStructure(self.func, desc.name.as_ptr(), &mut struc));
-        }
-        Ok(RfcStructure::new(&self.func, desc, struc))
+        self.get_parameter(name).and_then(|p| p.as_structure())
     }
 
+    /// Get a TABLE parameter by name.
     pub fn get_table<'param: 'conn>(&'param self, name: &str) -> Result<RfcTable<'param>> {
-        let desc = self.get_parameter_desc(name)?;
-        let mut table: sapnwrfc_sys::RFC_TABLE_HANDLE = ptr::null_mut();
-        unsafe {
-            check_rc_ok!(RfcGetTable(self.func, desc.name.as_ptr(), &mut table));
-        }
-        Ok(RfcTable::new(&self.func, desc, table))
+        self.get_parameter(name).and_then(|p| p.as_table())
     }
 
     pub fn invoke(&self) -> Result<()> {
@@ -214,7 +207,7 @@ impl Drop for RfcFunction<'_> {
                 // Call to RfcDestroyFunctionDesc fails with RFC_ILLEGAL_STATE when
                 // the function description is held in the runtime cache. The error
                 // can safely be silenced for this case.
-                if is_rc_err!(rc) && rc != sapnwrfc_sys::_RFC_RC_RFC_ILLEGAL_STATE {
+                if is_rc_err!(rc) && rc != sapnwrfc_sys::_RFC_RC::RFC_ILLEGAL_STATE {
                     log::warn!("Function description discard failed: {}", err_info);
                 }
             }
@@ -223,6 +216,7 @@ impl Drop for RfcFunction<'_> {
     }
 }
 
+/// An RFC function parameter.
 pub struct RfcParameter<'func> {
     handle: &'func sapnwrfc_sys::DATA_CONTAINER_HANDLE,
     desc: sapnwrfc_sys::RFC_PARAMETER_DESC,
@@ -236,10 +230,12 @@ impl<'func> RfcParameter<'func> {
         Self { handle, desc }
     }
 
+    /// Get the name of the parameter.
     pub fn name(&self) -> String {
         uc::to_string_truncate(&self.desc.name).expect("Invalid SAP_UC name string")
     }
 
+    /// Set the parameter to a numeric value. Only valid for EXPORT parameters.
     pub fn set_int(&mut self, value: i32) -> Result<()> {
         unsafe {
             check_rc_ok!(RfcSetInt(*self.handle, self.desc.name.as_ptr(), value));
@@ -247,6 +243,7 @@ impl<'func> RfcParameter<'func> {
         Ok(())
     }
 
+    /// Get the parameter as an integer value. Only valid for IMPORT and EXPORT parameters.
     pub fn get_int(&self) -> Result<i32> {
         let mut value: i32 = 0;
         unsafe {
@@ -255,6 +252,7 @@ impl<'func> RfcParameter<'func> {
         Ok(value)
     }
 
+    /// Set the parameter to a string value. Only valid for EXPORT parameters.
     pub fn set_string(&mut self, value: &str) -> Result<()> {
         let uc_value = uc::from_str(value)?;
         unsafe {
@@ -268,18 +266,21 @@ impl<'func> RfcParameter<'func> {
         Ok(())
     }
 
+    /// Get the parameter as a string value. Only valid for IMPORT and EXPORT parameters.
     pub fn get_string(&self) -> Result<String> {
+        let mut str_len: u32 = 0;
         unsafe {
-            let mut str_len: u32 = 0;
             check_rc_ok!(RfcGetStringLength(
                 *self.handle,
                 self.desc.name.as_ptr(),
                 &mut str_len
             ));
-            str_len += 1;
+        }
+        str_len += 1;
 
-            let mut res_len: u32 = 0;
-            let mut str_buf: Vec<SAP_UC> = Vec::with_capacity(str_len as usize);
+        let mut res_len: u32 = 0;
+        let mut str_buf: Vec<SAP_UC> = Vec::with_capacity(str_len as usize);
+        unsafe {
             check_rc_ok!(RfcGetString(
                 *self.handle,
                 self.desc.name.as_ptr(),
@@ -287,8 +288,35 @@ impl<'func> RfcParameter<'func> {
                 str_len,
                 &mut res_len
             ));
-            uc::to_string(str_buf.as_ptr(), res_len)
         }
+        uc::to_string(&str_buf, res_len)
+    }
+
+    /// Use this parameter as a structure. Only valid for structure typed IMPORT or EXPORT
+    /// parameters.
+    pub fn as_structure(self) -> Result<RfcStructure<'func>> {
+        let mut struc: sapnwrfc_sys::RFC_STRUCTURE_HANDLE = ptr::null_mut();
+        unsafe {
+            check_rc_ok!(RfcGetStructure(
+                *self.handle,
+                self.desc.name.as_ptr(),
+                &mut struc
+            ));
+        }
+        Ok(RfcStructure::new(self.handle, self.desc, struc))
+    }
+
+    /// Use this parameter as a structure. Only valid for TABLE parameters.
+    pub fn as_table(self) -> Result<RfcTable<'func>> {
+        let mut table: sapnwrfc_sys::RFC_TABLE_HANDLE = ptr::null_mut();
+        unsafe {
+            check_rc_ok!(RfcGetTable(
+                *self.handle,
+                self.desc.name.as_ptr(),
+                &mut table
+            ));
+        }
+        Ok(RfcTable::new(self.handle, self.desc, table))
     }
 }
 
@@ -313,25 +341,25 @@ impl RfcParameter<'_> {
     }
 
     pub fn get_date(&self) -> Result<chrono::Date<chrono::FixedOffset>> {
-        use sapnwrfc_sys::RfcGetDate;
+        use sapnwrfc_sys::{RfcGetDate, SAP_DATE_LN};
 
-        let mut date_buf = [0 as SAP_UC; sapnwrfc_sys::SAP_DATE_LN as usize];
+        let mut date_buf: [SAP_UC; SAP_DATE_LN as usize] = [0; SAP_DATE_LN as usize];
         unsafe {
             check_rc_ok!(RfcGetDate(
                 *self.handle,
                 self.desc.name.as_ptr(),
                 date_buf.as_mut_ptr()
             ));
-            let date_str = uc::to_string(date_buf.as_ptr(), sapnwrfc_sys::SAP_DATE_LN)?;
-            Ok(chrono::DateTime::parse_from_str(&date_str, "%Y%m%d")
-                .map_err(|err| RfcErrorInfo::custom(&err.to_string()))?
-                .date())
         }
+        let date_str = uc::to_string(&date_buf, sapnwrfc_sys::SAP_DATE_LN)?;
+        Ok(chrono::DateTime::parse_from_str(&date_str, "%Y%m%d")
+            .map_err(|err| RfcErrorInfo::custom(&err.to_string()))?
+            .date())
     }
 }
 
 pub struct RfcStructure<'func> {
-    handle: &'func sapnwrfc_sys::DATA_CONTAINER_HANDLE,
+    _handle: &'func sapnwrfc_sys::DATA_CONTAINER_HANDLE,
     desc: sapnwrfc_sys::RFC_PARAMETER_DESC,
     struc: sapnwrfc_sys::RFC_STRUCTURE_HANDLE,
 }
@@ -343,7 +371,7 @@ impl<'func> RfcStructure<'func> {
         struc: sapnwrfc_sys::RFC_STRUCTURE_HANDLE,
     ) -> Self {
         Self {
-            handle,
+            _handle: handle,
             desc,
             struc,
         }
@@ -353,7 +381,7 @@ impl<'func> RfcStructure<'func> {
 unsafe impl Send for RfcStructure<'_> {}
 
 pub struct RfcTable<'func> {
-    handle: &'func sapnwrfc_sys::DATA_CONTAINER_HANDLE,
+    _handle: &'func sapnwrfc_sys::DATA_CONTAINER_HANDLE,
     desc: sapnwrfc_sys::RFC_PARAMETER_DESC,
     table: sapnwrfc_sys::RFC_TABLE_HANDLE,
 }
@@ -365,10 +393,46 @@ impl<'func> RfcTable<'func> {
         table: sapnwrfc_sys::RFC_TABLE_HANDLE,
     ) -> Self {
         Self {
-            handle,
+            _handle: handle,
             desc,
             table,
         }
+    }
+
+    fn row_struct<'row: 'func>(
+        &'row self,
+        handle: sapnwrfc_sys::RFC_STRUCTURE_HANDLE,
+    ) -> RfcStructure<'row> {
+        RfcStructure::new(&self.table, self.desc, handle)
+    }
+
+    /// Get the number of rows in the table.
+    pub fn row_count(&self) -> Result<usize> {
+        let mut count = 0;
+        unsafe {
+            check_rc_ok!(RfcGetRowCount(self.table, &mut count));
+        }
+        Ok(count as usize)
+    }
+
+    /// Ge the current row structue.
+    pub fn current_row<'row: 'func>(&'row self) -> Result<RfcStructure<'row>> {
+        let mut err_info = RfcErrorInfo::new();
+        let handle = unsafe { RfcGetCurrentRow(self.table, err_info.as_mut_ptr()) };
+        if handle.is_null() {
+            return Err(err_info);
+        }
+        Ok(self.row_struct(handle))
+    }
+
+    /// Add and return a new row to the table.
+    pub fn add_row<'row: 'func>(&'row self) -> Result<RfcStructure<'row>> {
+        let mut err_info = RfcErrorInfo::new();
+        let handle = unsafe { RfcAppendNewRow(self.table, err_info.as_mut_ptr()) };
+        if handle.is_null() {
+            return Err(err_info);
+        }
+        Ok(self.row_struct(handle))
     }
 }
 
