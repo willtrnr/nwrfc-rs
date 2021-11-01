@@ -1,13 +1,21 @@
+pub mod connection;
 pub mod error;
-pub mod rfc;
+pub mod function;
+pub mod parameter;
+pub mod structure;
+pub mod table;
 pub mod uc;
 
 #[cfg(feature = "deadpool")]
 pub mod pool;
 
 pub use crate::{
+    connection::{RfcConnection, RfcConnectionBuilder},
     error::RfcErrorInfo,
-    rfc::{RfcConnection, RfcConnectionBuilder, RfcFunction, RfcStructure, RfcTable},
+    function::RfcFunction,
+    parameter::RfcParameter,
+    structure::RfcStructure,
+    table::RfcTable,
 };
 
 #[allow(clippy::single_component_path_imports)]

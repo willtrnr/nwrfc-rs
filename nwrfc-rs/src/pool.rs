@@ -1,6 +1,6 @@
 use crate::{
+    connection::{RfcConnection, RfcConnectionBuilder},
     error::RfcErrorInfo,
-    rfc::{RfcConnection, RfcConnectionBuilder},
 };
 use async_trait::async_trait;
 use deadpool::{
