@@ -1,90 +1,71 @@
 use crate::{
+    data_container::{macros::rfc_data_delegates, RfcDataContainer},
     error::{Result, RfcErrorInfo},
     macros::{check_rc_ok, is_rc_err},
-    parameter::RfcParameter,
-    structure::RfcStructure,
-    table::RfcTable,
-    uc,
 };
 use sapnwrfc_sys::{
     self, RfcDestroyFunction, RfcDestroyFunctionDesc, RfcGetParameterDescByName, RfcInvoke,
+    RFC_CONNECTION_HANDLE, RFC_FUNCTION_DESC_HANDLE, RFC_FUNCTION_HANDLE, _RFC_RC,
 };
-use std::ptr;
 
 /// A remote enabled RFC function module.
 #[derive(Debug)]
 pub struct RfcFunction<'conn> {
-    conn: &'conn sapnwrfc_sys::RFC_CONNECTION_HANDLE,
-    desc: sapnwrfc_sys::RFC_FUNCTION_DESC_HANDLE,
-    func: sapnwrfc_sys::RFC_FUNCTION_HANDLE,
+    conn_handle: &'conn RFC_CONNECTION_HANDLE,
+    handle: RFC_FUNCTION_HANDLE,
+    desc: RFC_FUNCTION_DESC_HANDLE,
+    data: RfcDataContainer,
 }
 
 impl<'conn> RfcFunction<'conn> {
     pub(crate) fn new(
-        conn: &'conn sapnwrfc_sys::RFC_CONNECTION_HANDLE,
-        desc: sapnwrfc_sys::RFC_FUNCTION_DESC_HANDLE,
-        func: sapnwrfc_sys::RFC_FUNCTION_HANDLE,
+        conn_handle: &'conn RFC_CONNECTION_HANDLE,
+        handle: RFC_FUNCTION_HANDLE,
+        desc: RFC_FUNCTION_DESC_HANDLE,
     ) -> Self {
-        Self { conn, desc, func }
-    }
-
-    /// Get an IMPORT, EXPORT or TABLE parameter by name.
-    pub fn get_parameter<'param: 'conn>(&'param self, name: &str) -> Result<RfcParameter<'param>> {
-        let uc_name = uc::from_str(name)?;
-
-        let mut desc = sapnwrfc_sys::RFC_PARAMETER_DESC::default();
-        unsafe {
-            check_rc_ok!(RfcGetParameterDescByName(
-                self.desc,
-                uc_name.as_ptr(),
-                &mut desc
-            ));
+        Self {
+            conn_handle,
+            handle,
+            desc,
+            data: RfcDataContainer::new(handle),
         }
-        Ok(RfcParameter::new(&self.func, desc))
-    }
-
-    /// Get an IMPORT or EXPORT structure parameter.
-    pub fn get_structure<'param: 'conn>(&'param self, name: &str) -> Result<RfcStructure<'param>> {
-        self.get_parameter(name).and_then(|p| p.as_structure())
-    }
-
-    /// Get a TABLE parameter by name.
-    pub fn get_table<'param: 'conn>(&'param self, name: &str) -> Result<RfcTable<'param>> {
-        self.get_parameter(name).and_then(|p| p.as_table())
     }
 
     pub fn invoke(&self) -> Result<()> {
         unsafe {
-            check_rc_ok!(RfcInvoke(*self.conn, self.func));
+            check_rc_ok!(RfcInvoke(*self.conn_handle, self.handle));
         }
         Ok(())
     }
-}
 
-unsafe impl Send for RfcFunction<'_> {}
+    rfc_data_delegates!(self.data, |name, desc| {
+        unsafe {
+            check_rc_ok!(RfcGetParameterDescByName(
+                self.desc,
+                name.as_ptr(),
+                &mut desc
+            ));
+        }
+        println!("{:?}", &desc);
+    });
+}
 
 impl Drop for RfcFunction<'_> {
     fn drop(&mut self) {
         let mut err_info = RfcErrorInfo::new();
-        if !self.func.is_null() {
-            unsafe {
-                if is_rc_err!(RfcDestroyFunction(self.func, err_info.as_mut_ptr())) {
-                    log::warn!("Function discard failed: {}", err_info);
-                }
+        unsafe {
+            if is_rc_err!(RfcDestroyFunction(self.handle, err_info.as_mut_ptr())) {
+                log::warn!("Function destroy failed: {}", err_info);
             }
-            self.func = ptr::null_mut();
-        }
-        if !self.desc.is_null() {
-            unsafe {
-                let rc = RfcDestroyFunctionDesc(self.desc, err_info.as_mut_ptr());
-                // Call to RfcDestroyFunctionDesc fails with RFC_ILLEGAL_STATE when
-                // the function description is held in the runtime cache. The error
-                // can safely be silenced for this case.
-                if is_rc_err!(rc) && rc != sapnwrfc_sys::_RFC_RC::RFC_ILLEGAL_STATE {
-                    log::warn!("Function description discard failed: {}", err_info);
-                }
+
+            let rc = RfcDestroyFunctionDesc(self.desc, err_info.as_mut_ptr());
+            // Call to RfcDestroyFunctionDesc fails with RFC_ILLEGAL_STATE when the function
+            // description is held in a cache. The can safely be silenced for this case.
+            if is_rc_err!(rc) && rc != _RFC_RC::RFC_ILLEGAL_STATE {
+                log::warn!("Function description destroy failed: {}", err_info);
             }
-            self.desc = ptr::null_mut();
         }
     }
 }
+
+unsafe impl Send for RfcFunction<'_> {}

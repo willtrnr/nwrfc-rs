@@ -2,16 +2,16 @@ use crate::{
     error::{Result, RfcErrorInfo},
     macros::{check_rc_ok, is_rc_err},
 };
-use sapnwrfc_sys::{RfcSAPUCToUTF8, RfcUTF8ToSAPUC, SAP_UC};
+use sapnwrfc_sys::{RfcSAPUCToUTF8, RfcUTF8ToSAPUC, RFC_ABAP_NAME, SAP_UC};
 
-pub fn from_str_to_ptr(value: &str, dest: &mut [SAP_UC], size: usize) -> Result<u32> {
+pub fn from_str_to_buffer(value: &str, dest: *mut SAP_UC, size: usize) -> Result<u32> {
     let mut size = size as u32;
     let mut res_len: u32 = 0;
     unsafe {
         check_rc_ok!(RfcUTF8ToSAPUC(
             value.as_ptr(),
             value.len() as u32,
-            dest.as_mut_ptr(),
+            dest,
             &mut size,
             &mut res_len
         ));
@@ -20,7 +20,13 @@ pub fn from_str_to_ptr(value: &str, dest: &mut [SAP_UC], size: usize) -> Result<
 }
 
 pub fn from_str_to_slice(value: &str, dest: &mut [SAP_UC]) -> Result<u32> {
-    from_str_to_ptr(value, dest, dest.len())
+    from_str_to_buffer(value, dest.as_mut_ptr(), dest.len())
+}
+
+pub fn from_str_to_abap_name(value: &str) -> Result<RFC_ABAP_NAME> {
+    let mut uc_value: RFC_ABAP_NAME = Default::default();
+    from_str_to_slice(value, &mut uc_value)?;
+    Ok(uc_value)
 }
 
 pub fn from_str(value: &str) -> Result<Vec<SAP_UC>> {

@@ -12,6 +12,7 @@ use std::{collections::HashMap, ptr};
 
 /// An SAP NW RFC connection.
 #[derive(Debug)]
+#[repr(transparent)]
 pub struct RfcConnection {
     handle: sapnwrfc_sys::RFC_CONNECTION_HANDLE,
 }
@@ -45,7 +46,7 @@ impl RfcConnection {
         RfcConnectionBuilder::default()
     }
 
-    /// Short way to open a connection to a destination specified in an `sapnwrfc.ini` file.
+    /// Open a connection to a destination specified in an `sapnwrfc.ini` file.
     ///
     /// Equivalent to only setting the `dest` parameter in a connection builder.
     pub fn for_dest(name: &str) -> Result<RfcConnection> {
@@ -65,20 +66,18 @@ impl RfcConnection {
         let uc_name = uc::from_str(name)?;
 
         let mut err_info = RfcErrorInfo::new();
-        let desc_handle =
+        let desc =
             unsafe { RfcGetFunctionDesc(self.handle, uc_name.as_ptr(), err_info.as_mut_ptr()) };
-        if desc_handle.is_null() {
+        if desc.is_null() {
             return Err(err_info);
         }
-        let func_handle = unsafe { RfcCreateFunction(desc_handle, err_info.as_mut_ptr()) };
-        if func_handle.is_null() {
+        let func = unsafe { RfcCreateFunction(desc, err_info.as_mut_ptr()) };
+        if func.is_null() {
             return Err(err_info);
         }
-        Ok(RfcFunction::new(&self.handle, desc_handle, func_handle))
+        Ok(RfcFunction::new(&self.handle, func, desc))
     }
 }
-
-unsafe impl Send for RfcConnection {}
 
 impl Drop for RfcConnection {
     fn drop(&mut self) {
@@ -93,6 +92,8 @@ impl Drop for RfcConnection {
         }
     }
 }
+
+unsafe impl Send for RfcConnection {}
 
 /// An RFC connection builder to prepare parameters for opening the connection.
 #[derive(Clone, Debug)]

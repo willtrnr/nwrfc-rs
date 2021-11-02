@@ -21,7 +21,6 @@ fn main() {
         .allowlist_type("_*(?:DATA|RFC|SAP|DECF).*")
         .allowlist_var("_*(?:DATA|RFC|SAP|DECF).*")
         .default_enum_style(bindgen::EnumVariation::ModuleConsts)
-        .derive_debug(false)
         .derive_default(true)
         .clang_arg(format!("-I{}", include_path.display()))
         .parse_callbacks(Box::new(bindgen::CargoCallbacks))

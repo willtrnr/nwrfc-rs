@@ -1,4 +1,5 @@
 use crate::{
+    data_container::{macros::rfc_data_delegates, RfcDataContainer},
     error::{Result, RfcErrorInfo},
     macros::{assert_rc_ok, check_rc_ok},
     structure::RfcStructure,
@@ -6,61 +7,81 @@ use crate::{
 };
 use sapnwrfc_sys::{
     self, RfcAppendNewRow, RfcDeleteAllRows, RfcDeleteCurrentRow, RfcGetCurrentRow,
-    RfcGetFieldCount, RfcGetRowCount, RfcGetTypeName, RfcInsertNewRow, RfcMoveTo,
-    RfcMoveToFirstRow, RfcMoveToLastRow, RFC_ABAP_NAME,
+    RfcGetFieldCount, RfcGetFieldDescByName, RfcGetRowCount, RfcGetRowType, RfcGetTypeName,
+    RfcInsertNewRow, RfcMoveTo, RfcMoveToFirstRow, RfcMoveToLastRow, DATA_CONTAINER_HANDLE,
+    RFC_ABAP_NAME, RFC_TABLE_HANDLE, RFC_TYPE_DESC_HANDLE,
 };
 
 /// An RFC table.
-pub struct RfcTable<'func> {
-    _container: &'func sapnwrfc_sys::DATA_CONTAINER_HANDLE,
-    handle: sapnwrfc_sys::RFC_TABLE_HANDLE,
-    desc: sapnwrfc_sys::RFC_TYPE_DESC_HANDLE,
+pub struct RfcTable<'data> {
+    _container: &'data DATA_CONTAINER_HANDLE,
+    handle: RFC_TABLE_HANDLE,
+    desc: RFC_TYPE_DESC_HANDLE,
+    data: RfcDataContainer,
 }
 
-impl<'func> RfcTable<'func> {
+impl<'data> RfcTable<'data> {
     pub(crate) fn new(
-        container: &'func sapnwrfc_sys::DATA_CONTAINER_HANDLE,
-        handle: sapnwrfc_sys::RFC_TABLE_HANDLE,
-        desc: sapnwrfc_sys::RFC_TYPE_DESC_HANDLE,
+        container: &'data DATA_CONTAINER_HANDLE,
+        handle: RFC_TABLE_HANDLE,
+        desc: RFC_TYPE_DESC_HANDLE,
     ) -> Self {
         Self {
             _container: container,
             handle,
             desc,
+            data: RfcDataContainer::new(handle),
         }
     }
 
-    /// Get the type name of the table rows.
     pub fn name(&self) -> String {
         let mut err_info = RfcErrorInfo::new();
         let mut uc_name: RFC_ABAP_NAME = Default::default();
-        assert_rc_ok!(
-            unsafe { RfcGetTypeName(self.desc, uc_name.as_mut_ptr(), err_info.as_mut_ptr()) },
-            "Unexpected failure from RfcGetTypeName"
-        );
-        uc::to_string_truncate(&uc_name).expect("Unexpected type name decoding error")
+        unsafe {
+            assert_rc_ok!(
+                RfcGetTypeName(self.desc, uc_name.as_mut_ptr(), err_info.as_mut_ptr()),
+                "Unexpected failure with RfcGetTypeName"
+            );
+        }
+        uc::to_string_truncate(&uc_name).expect("Unexpected string decode failure with type name")
     }
 
-    /// Get the number of fields per row.
-    pub fn field_count(&self) -> usize {
+    pub fn field_count(&self) -> u32 {
         let mut err_info = RfcErrorInfo::new();
         let mut count = 0;
-        let rc = unsafe { RfcGetFieldCount(self.desc, &mut count, err_info.as_mut_ptr()) };
-        assert_rc_ok!(rc, "Unexpected failure from RfcGetFieldCount");
-        count as usize
+        unsafe {
+            assert_rc_ok!(
+                RfcGetFieldCount(self.desc, &mut count, err_info.as_mut_ptr()),
+                "Unexpected failure with RfcGetFieldCount"
+            );
+        }
+        count
+    }
+
+    fn current_row<'row: 'data>(&'row self) -> Result<RfcStructure<'row>> {
+        let mut err_info = RfcErrorInfo::new();
+        let handle = unsafe { RfcGetCurrentRow(self.handle, err_info.as_mut_ptr()) };
+        if handle.is_null() {
+            return Err(err_info);
+        }
+        let desc = unsafe { RfcGetRowType(self.handle, err_info.as_mut_ptr()) };
+        if desc.is_null() {
+            return Err(err_info);
+        }
+        Ok(RfcStructure::new(&self.handle, handle, desc))
     }
 
     /// Get the number of rows in the table.
-    pub fn row_count(&self) -> Result<usize> {
+    pub fn row_count(&self) -> Result<u32> {
         let mut count = 0;
         unsafe {
             check_rc_ok!(RfcGetRowCount(self.handle, &mut count));
         }
-        Ok(count as usize)
+        Ok(count)
     }
 
     /// Get the row at the given index.
-    pub fn get_row<'row: 'func>(&'row mut self, index: usize) -> Result<RfcStructure<'row>> {
+    pub fn get_row<'row: 'data>(&'row mut self, index: u32) -> Result<RfcStructure<'row>> {
         unsafe {
             check_rc_ok!(RfcMoveTo(self.handle, index as u32));
         }
@@ -68,15 +89,15 @@ impl<'func> RfcTable<'func> {
     }
 
     /// Get the first row.
-    pub fn get_first_row<'row: 'func>(&'row mut self) -> Result<RfcStructure<'row>> {
+    pub fn get_first_row<'row: 'data>(&'row mut self) -> Result<RfcStructure<'row>> {
         unsafe {
             check_rc_ok!(RfcMoveToFirstRow(self.handle));
         }
         self.current_row()
     }
 
-    /// Get the first row.
-    pub fn get_last_row<'row: 'func>(&'row mut self) -> Result<RfcStructure<'row>> {
+    /// Get the last row.
+    pub fn get_last_row<'row: 'data>(&'row mut self) -> Result<RfcStructure<'row>> {
         unsafe {
             check_rc_ok!(RfcMoveToLastRow(self.handle));
         }
@@ -84,7 +105,7 @@ impl<'func> RfcTable<'func> {
     }
 
     /// Append a new row and return it.
-    pub fn append_row<'row: 'func>(&'row mut self) -> Result<RfcStructure<'row>> {
+    pub fn append_row<'row: 'data>(&'row mut self) -> Result<RfcStructure<'row>> {
         let mut err_info = RfcErrorInfo::new();
         let handle = unsafe { RfcAppendNewRow(self.handle, err_info.as_mut_ptr()) };
         if handle.is_null() {
@@ -94,11 +115,11 @@ impl<'func> RfcTable<'func> {
     }
 
     /// Insert a new row at the given position and return it.
-    pub fn insert_row<'row: 'func>(&'row mut self, index: usize) -> Result<RfcStructure<'row>> {
+    pub fn insert_row<'row: 'data>(&'row mut self, index: u32) -> Result<RfcStructure<'row>> {
         let mut err_info = RfcErrorInfo::new();
         unsafe {
             check_rc_ok!(
-                RfcMoveTo(self.handle, index as u32, err_info.as_mut_ptr()),
+                RfcMoveTo(self.handle, index, err_info.as_mut_ptr()),
                 err_info
             );
         }
@@ -110,11 +131,11 @@ impl<'func> RfcTable<'func> {
     }
 
     /// Delete the row at the given index.
-    pub fn delete_row(&mut self, index: usize) -> Result<()> {
+    pub fn delete_row(&mut self, index: u32) -> Result<()> {
         let mut err_info = RfcErrorInfo::new();
         unsafe {
             check_rc_ok!(
-                RfcMoveTo(self.handle, index as u32, err_info.as_mut_ptr()),
+                RfcMoveTo(self.handle, index, err_info.as_mut_ptr()),
                 err_info
             );
             check_rc_ok!(
@@ -133,14 +154,11 @@ impl<'func> RfcTable<'func> {
         Ok(())
     }
 
-    fn current_row(&self) -> Result<RfcStructure<'_>> {
-        let mut err_info = RfcErrorInfo::new();
-        let handle = unsafe { RfcGetCurrentRow(self.handle, err_info.as_mut_ptr()) };
-        if handle.is_null() {
-            return Err(err_info);
+    rfc_data_delegates!(self.data, |name, desc| {
+        unsafe {
+            check_rc_ok!(RfcGetFieldDescByName(self.desc, name.as_ptr(), &mut desc));
         }
-        Ok(RfcStructure::new(&self.handle, handle, self.desc))
-    }
+    });
 }
 
 unsafe impl Send for RfcTable<'_> {}
