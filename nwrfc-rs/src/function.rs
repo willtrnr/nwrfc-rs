@@ -1,6 +1,6 @@
 use crate::{
     error::{Result, RfcErrorInfo},
-    macros::*,
+    macros::{check_rc_ok, is_rc_err},
     parameter::RfcParameter,
     structure::RfcStructure,
     table::RfcTable,
@@ -11,7 +11,7 @@ use sapnwrfc_sys::{
 };
 use std::ptr;
 
-/// A remote enabled function module.
+/// A remote enabled RFC function module.
 #[derive(Debug)]
 pub struct RfcFunction<'conn> {
     conn: &'conn sapnwrfc_sys::RFC_CONNECTION_HANDLE,

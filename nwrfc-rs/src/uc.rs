@@ -1,6 +1,6 @@
 use crate::{
     error::{Result, RfcErrorInfo},
-    macros::*,
+    macros::{check_rc_ok, is_rc_err},
 };
 use sapnwrfc_sys::{RfcSAPUCToUTF8, RfcUTF8ToSAPUC, SAP_UC};
 

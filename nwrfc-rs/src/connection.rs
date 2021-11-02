@@ -1,7 +1,7 @@
 use crate::{
     error::{Result, RfcErrorInfo},
     function::RfcFunction,
-    macros::*,
+    macros::{check_rc_ok, is_rc_err},
     uc,
 };
 use sapnwrfc_sys::{
@@ -134,41 +134,5 @@ impl RfcConnectionBuilder {
 impl Default for RfcConnectionBuilder {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn smoke_test() {
-        let conn = RfcConnection::builder()
-            .set_param("dest", "TEST")
-            .build()
-            .unwrap();
-        conn.ping().unwrap();
-
-        let func = conn.get_function("SCP_STRING_ECHO").unwrap();
-
-        func.get_parameter("IMP")
-            .unwrap()
-            .set_string("Test String")
-            .unwrap();
-
-        func.invoke().unwrap();
-
-        assert_eq!(
-            func.get_parameter("EXP").unwrap().get_string().unwrap(),
-            "Test String"
-        );
-    }
-
-    #[test]
-    fn negative_smoke_test() {
-        RfcConnection::builder()
-            .set_param("dest", "INVALID")
-            .build()
-            .unwrap_err();
     }
 }

@@ -1,7 +1,13 @@
-use crate::{error::Result, macros::*, structure::RfcStructure, table::RfcTable, uc};
+use crate::{
+    error::{Result, RfcErrorInfo},
+    macros::check_rc_ok,
+    structure::RfcStructure,
+    table::RfcTable,
+    uc,
+};
 use sapnwrfc_sys::{
-    self, RfcGetInt, RfcGetString, RfcGetStringLength, RfcGetStructure, RfcGetTable, RfcSetInt,
-    RfcSetString, SAP_UC,
+    self, RfcDescribeType, RfcGetInt, RfcGetString, RfcGetStringLength, RfcGetStructure,
+    RfcGetTable, RfcSetInt, RfcSetString, SAP_UC, _RFCTYPE, _RFC_DIRECTION,
 };
 use std::ptr;
 
@@ -19,9 +25,52 @@ impl<'func> RfcParameter<'func> {
         Self { handle, desc }
     }
 
-    /// Get the name of the parameter.
+    /// Get the parameter name.
     pub fn name(&self) -> String {
-        uc::to_string_truncate(&self.desc.name).expect("Invalid SAP_UC name string")
+        uc::to_string_truncate(&self.desc.name).expect("Unexpected parameter name decoding failure")
+    }
+
+    /// Check if the parameter is of an integer-like type.
+    pub fn is_int(&self) -> bool {
+        self.desc.type_ == _RFCTYPE::RFCTYPE_INT
+            || self.desc.type_ == _RFCTYPE::RFCTYPE_INT1
+            || self.desc.type_ == _RFCTYPE::RFCTYPE_INT2
+            || self.desc.type_ == _RFCTYPE::RFCTYPE_INT8
+            || self.desc.type_ == _RFCTYPE::RFCTYPE_NUM
+    }
+
+    /// Check if the parameter is of a string-like type.
+    pub fn is_string(&self) -> bool {
+        self.desc.type_ == _RFCTYPE::RFCTYPE_CHAR
+            || self.desc.type_ == _RFCTYPE::RFCTYPE_STRING
+            || self.desc.type_ == _RFCTYPE::RFCTYPE_XSTRING
+    }
+
+    /// Check if the parameter is of a structure type.
+    pub fn is_structure(&self) -> bool {
+        self.desc.type_ == _RFCTYPE::RFCTYPE_STRUCTURE
+    }
+
+    /// Check if the parameter is an IMPORT.
+    pub fn is_import(&self) -> bool {
+        self.desc.direction == _RFC_DIRECTION::RFC_IMPORT
+            || self.desc.direction == _RFC_DIRECTION::RFC_CHANGING
+    }
+
+    /// Check if the parameter is an EXPORT.
+    pub fn is_export(&self) -> bool {
+        self.desc.direction == _RFC_DIRECTION::RFC_EXPORT
+            || self.desc.direction == _RFC_DIRECTION::RFC_CHANGING
+    }
+
+    /// Check if the parameter is a TABLE or table valued.
+    pub fn is_table(&self) -> bool {
+        self.desc.direction == _RFC_DIRECTION::RFC_TABLES
+            || self.desc.type_ == _RFCTYPE::RFCTYPE_TABLE
+    }
+
+    pub fn is_optional(&self) -> bool {
+        self.desc.optional == 1
     }
 
     /// Set the parameter to a numeric value. Only valid for EXPORT parameters.
@@ -49,7 +98,7 @@ impl<'func> RfcParameter<'func> {
                 *self.handle,
                 self.desc.name.as_ptr(),
                 uc_value.as_ptr(),
-                value.len() as u32
+                uc_value.len() as u32
             ));
         }
         Ok(())
@@ -84,28 +133,46 @@ impl<'func> RfcParameter<'func> {
     /// Use this parameter as a structure. Only valid for structure typed IMPORT or EXPORT
     /// parameters.
     pub fn as_structure(self) -> Result<RfcStructure<'func>> {
-        let mut struc: sapnwrfc_sys::RFC_STRUCTURE_HANDLE = ptr::null_mut();
+        let mut err_info = RfcErrorInfo::new();
+        let mut struc = ptr::null_mut();
         unsafe {
-            check_rc_ok!(RfcGetStructure(
-                *self.handle,
-                self.desc.name.as_ptr(),
-                &mut struc
-            ));
+            check_rc_ok!(
+                RfcGetStructure(
+                    *self.handle,
+                    self.desc.name.as_ptr(),
+                    &mut struc,
+                    err_info.as_mut_ptr()
+                ),
+                err_info
+            );
         }
-        Ok(RfcStructure::new(self.handle, self.desc, struc))
+        let desc = unsafe { RfcDescribeType(struc, err_info.as_mut_ptr()) };
+        if desc.is_null() {
+            return Err(err_info);
+        }
+        Ok(RfcStructure::new(self.handle, struc, desc))
     }
 
     /// Use this parameter as a structure. Only valid for TABLE parameters.
     pub fn as_table(self) -> Result<RfcTable<'func>> {
-        let mut table: sapnwrfc_sys::RFC_TABLE_HANDLE = ptr::null_mut();
+        let mut err_info = RfcErrorInfo::new();
+        let mut table = ptr::null_mut();
         unsafe {
-            check_rc_ok!(RfcGetTable(
-                *self.handle,
-                self.desc.name.as_ptr(),
-                &mut table
-            ));
+            check_rc_ok!(
+                RfcGetTable(
+                    *self.handle,
+                    self.desc.name.as_ptr(),
+                    &mut table,
+                    err_info.as_mut_ptr()
+                ),
+                err_info
+            );
         }
-        Ok(RfcTable::new(self.handle, self.desc, table))
+        let desc = unsafe { RfcDescribeType(table, err_info.as_mut_ptr()) };
+        if desc.is_null() {
+            return Err(err_info);
+        }
+        Ok(RfcTable::new(self.handle, table, desc))
     }
 }
 
@@ -130,9 +197,9 @@ impl RfcParameter<'_> {
     }
 
     pub fn get_date(&self) -> Result<chrono::Date<chrono::FixedOffset>> {
-        use sapnwrfc_sys::{RfcGetDate, SAP_DATE_LN};
+        use sapnwrfc_sys::{RfcGetDate, SAP_DATE};
 
-        let mut date_buf: [SAP_UC; SAP_DATE_LN as usize] = [0; SAP_DATE_LN as usize];
+        let mut date_buf: SAP_DATE = Default::default();
         unsafe {
             check_rc_ok!(RfcGetDate(
                 *self.handle,
