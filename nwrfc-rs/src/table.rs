@@ -81,7 +81,7 @@ impl<'data> RfcTable<'data> {
     }
 
     /// Get the row at the given index.
-    pub fn get_row<'row: 'data>(&'row mut self, index: u32) -> Result<RfcStructure<'row>> {
+    pub fn get_row<'row: 'data>(&'row self, index: u32) -> Result<RfcStructure<'row>> {
         unsafe {
             check_rc_ok!(RfcMoveTo(self.handle, index as u32));
         }
@@ -89,7 +89,7 @@ impl<'data> RfcTable<'data> {
     }
 
     /// Get the first row.
-    pub fn get_first_row<'row: 'data>(&'row mut self) -> Result<RfcStructure<'row>> {
+    pub fn get_first_row<'row: 'data>(&'row self) -> Result<RfcStructure<'row>> {
         unsafe {
             check_rc_ok!(RfcMoveToFirstRow(self.handle));
         }
@@ -97,7 +97,7 @@ impl<'data> RfcTable<'data> {
     }
 
     /// Get the last row.
-    pub fn get_last_row<'row: 'data>(&'row mut self) -> Result<RfcStructure<'row>> {
+    pub fn get_last_row<'row: 'data>(&'row self) -> Result<RfcStructure<'row>> {
         unsafe {
             check_rc_ok!(RfcMoveToLastRow(self.handle));
         }
