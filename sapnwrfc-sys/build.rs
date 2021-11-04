@@ -9,6 +9,7 @@ fn main() {
 
     println!("cargo:rustc-link-search=native={}", lib_path.display());
     println!("cargo:rustc-link-lib=dylib=sapnwrfc");
+    println!("cargo:rustc-link-lib=dylib=sapucum");
     println!("cargo:include={}", include_path.display());
 
     println!("cargo:rerun-if-changed=wrapper.h");
