@@ -4,7 +4,7 @@ use crate::{
     macros::{check_rc_ok, is_rc_err},
     uc,
 };
-use sapnwrfc_sys::{
+use libsapnwrfc_sys::{
     self, RfcCloseConnection, RfcCreateFunction, RfcGetFunctionDesc, RfcOpenConnection, RfcPing,
     SAP_UC,
 };
@@ -14,14 +14,14 @@ use std::{collections::HashMap, ptr};
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct RfcConnection {
-    handle: sapnwrfc_sys::RFC_CONNECTION_HANDLE,
+    handle: libsapnwrfc_sys::RFC_CONNECTION_HANDLE,
 }
 
 impl RfcConnection {
     pub(crate) fn new(params: Vec<(Vec<SAP_UC>, Vec<SAP_UC>)>) -> Result<RfcConnection> {
         let conn_params: Vec<_> = params
             .iter()
-            .map(|(k, v)| sapnwrfc_sys::RFC_CONNECTION_PARAMETER {
+            .map(|(k, v)| libsapnwrfc_sys::RFC_CONNECTION_PARAMETER {
                 name: k.as_ptr(),
                 value: v.as_ptr(),
             })

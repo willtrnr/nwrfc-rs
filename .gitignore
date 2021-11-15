@@ -1,5 +1,5 @@
 *.trc
 /.vim
 /.vscode
-/target
+target/
 sapnwrfc.ini

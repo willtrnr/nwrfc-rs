@@ -1,0 +1,27 @@
+[package]
+name = "libsapnwrfc-sys"
+version = "0.1.0"
+authors = ["William Turner <willtur.will@gmail.com>"]
+edition = "2018"
+description = "Native bindings to the libsapnwrfc library."
+repository = "https://github.com/willtrnr/saprfc-rs"
+license = "MIT"
+keywords = [
+  "sap",
+  "rfc",
+  "netweaver",
+  "sapnwrfc",
+]
+categories = [
+  "external-ffi-bindings",
+  "network-programming",
+]
+build = "build.rs"
+links = "sapnwrfc"
+
+[lib]
+name = "libsapnwrfc_sys"
+path = "lib.rs"
+
+[build-dependencies]
+bindgen = "0.59"

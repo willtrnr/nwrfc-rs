@@ -3,7 +3,7 @@ use crate::{
     error::{Result, RfcErrorInfo},
     macros::{check_rc_ok, is_rc_err},
 };
-use sapnwrfc_sys::{
+use libsapnwrfc_sys::{
     self, RfcDestroyFunction, RfcDestroyFunctionDesc, RfcGetParameterDescByName, RfcInvoke,
     RFC_CONNECTION_HANDLE, RFC_FUNCTION_DESC_HANDLE, RFC_FUNCTION_HANDLE, _RFC_RC,
 };
