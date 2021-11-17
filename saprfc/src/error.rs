@@ -1,5 +1,5 @@
 use crate::uc;
-use libsapnwrfc_sys::{RFC_ERROR_INFO, _RFC_ERROR_GROUP, _RFC_RC};
+use sapnwrfc_sys::{RFC_ERROR_INFO, _RFC_ERROR_GROUP, _RFC_RC};
 use std::{error, fmt, result, string};
 
 pub type Result<T> = result::Result<T, RfcErrorInfo>;

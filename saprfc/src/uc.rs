@@ -2,7 +2,7 @@ use crate::{
     error::{Result, RfcErrorInfo},
     macros::{check_rc_ok, is_rc_err},
 };
-use libsapnwrfc_sys::{RfcSAPUCToUTF8, RfcUTF8ToSAPUC, RFC_ABAP_NAME, SAP_UC};
+use sapnwrfc_sys::{RfcSAPUCToUTF8, RfcUTF8ToSAPUC, RFC_ABAP_NAME, SAP_UC};
 
 pub fn from_str_to_buffer(value: &str, dest: *mut SAP_UC, size: usize) -> Result<u32> {
     let mut size = size as u32;
@@ -43,7 +43,7 @@ pub fn from_str(value: &str) -> Result<Vec<SAP_UC>> {
             &mut res_len,
             err_info.as_mut_ptr(),
         );
-        if rc == libsapnwrfc_sys::_RFC_RC::RFC_BUFFER_TOO_SMALL {
+        if rc == sapnwrfc_sys::_RFC_RC::RFC_BUFFER_TOO_SMALL {
             buf.reserve_exact(buf_len as usize + 1);
             buf_len = buf.capacity() as u32;
             check_rc_ok!(
@@ -87,7 +87,7 @@ pub fn to_string(value: &[SAP_UC], size: u32) -> Result<String> {
             &mut res_len,
             err_info.as_mut_ptr(),
         );
-        if rc == libsapnwrfc_sys::_RFC_RC::RFC_BUFFER_TOO_SMALL {
+        if rc == sapnwrfc_sys::_RFC_RC::RFC_BUFFER_TOO_SMALL {
             buf.reserve_exact(buf_len as usize + 1);
             buf_len = buf.capacity() as u32;
             check_rc_ok!(

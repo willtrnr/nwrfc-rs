@@ -5,7 +5,7 @@ use crate::{
     structure::RfcStructure,
     uc,
 };
-use libsapnwrfc_sys::{
+use sapnwrfc_sys::{
     self, RfcAppendNewRow, RfcDeleteAllRows, RfcDeleteCurrentRow, RfcGetCurrentRow,
     RfcGetFieldCount, RfcGetFieldDescByName, RfcGetRowCount, RfcGetRowType, RfcGetTypeName,
     RfcInsertNewRow, RfcMoveTo, RfcMoveToFirstRow, RfcMoveToLastRow, DATA_CONTAINER_HANDLE,

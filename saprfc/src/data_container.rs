@@ -5,7 +5,7 @@ use crate::{
     table::RfcTable,
     uc,
 };
-use libsapnwrfc_sys::{
+use sapnwrfc_sys::{
     RfcDescribeType, RfcGetChars, RfcGetInt, RfcGetString, RfcGetStringLength, RfcGetStructure,
     RfcGetTable, RfcSetChars, RfcSetInt, RfcSetString, DATA_CONTAINER_HANDLE, RFC_ABAP_NAME,
     RFC_STRUCTURE_HANDLE, RFC_TABLE_HANDLE,
@@ -159,7 +159,7 @@ impl RfcDataContainer {
         Tz: chrono::TimeZone,
     {
         use chrono::Datelike;
-        use libsapnwrfc_sys::RfcSetDate;
+        use sapnwrfc_sys::RfcSetDate;
 
         let mut uc_value = uc::from_str(&format!(
             "{:04}{:02}{:02}",
@@ -179,7 +179,7 @@ impl RfcDataContainer {
 
     #[cfg(feature = "chrono")]
     pub fn get_date(&self, name: &RFC_ABAP_NAME) -> Result<chrono::Date<chrono::FixedOffset>> {
-        use libsapnwrfc_sys::{RfcGetDate, SAP_DATE};
+        use sapnwrfc_sys::{RfcGetDate, SAP_DATE};
 
         let mut date_buf: SAP_DATE = Default::default();
         unsafe {
@@ -189,7 +189,7 @@ impl RfcDataContainer {
                 date_buf.as_mut_ptr()
             ));
         }
-        let date_str = uc::to_string(&date_buf, libsapnwrfc_sys::SAP_DATE_LN)?;
+        let date_str = uc::to_string(&date_buf, sapnwrfc_sys::SAP_DATE_LN)?;
         Ok(chrono::DateTime::parse_from_str(&date_str, "%Y%m%d")
             .map_err(|err| RfcErrorInfo::custom(&err.to_string()))?
             .date())

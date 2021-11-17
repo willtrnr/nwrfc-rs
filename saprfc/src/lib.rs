@@ -21,7 +21,7 @@ pub use crate::{
 mod macros {
     macro_rules! is_rc_err {
         ($expr:expr) => {
-            $expr != libsapnwrfc_sys::_RFC_RC::RFC_OK
+            $expr != sapnwrfc_sys::_RFC_RC::RFC_OK
         };
     }
 
@@ -47,10 +47,10 @@ mod macros {
 
     macro_rules! assert_rc_ok {
         ($expr:expr , $msg:literal) => {
-            assert_eq!($expr, libsapnwrfc_sys::_RFC_RC::RFC_OK, $msg);
+            assert_eq!($expr, sapnwrfc_sys::_RFC_RC::RFC_OK, $msg);
         };
         ($expr:expr) => {
-            assert_eq!($expr, libsapnwrfc_sys::_RFC_RC::RFC_OK);
+            assert_eq!($expr, sapnwrfc_sys::_RFC_RC::RFC_OK);
         };
     }
 

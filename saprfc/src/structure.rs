@@ -4,7 +4,7 @@ use crate::{
     macros::{assert_rc_ok, check_rc_ok},
     uc,
 };
-use libsapnwrfc_sys::{
+use sapnwrfc_sys::{
     self, RfcGetFieldCount, RfcGetFieldDescByName, RfcGetTypeName, DATA_CONTAINER_HANDLE,
     RFC_ABAP_NAME, RFC_STRUCTURE_HANDLE, RFC_TYPE_DESC_HANDLE,
 };
